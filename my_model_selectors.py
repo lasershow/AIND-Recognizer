@@ -77,8 +77,24 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        bic_scores = []
+        try:
+            for n in self.n_components:
+                # BIC = −2 log L + p log N
+                # L = is the likelihood of the fitted model
+                # p = is the number of parameters
+                # N = is the number of data points
+                model = self.base_model(n)
+                log_l = model.score(self.X, self.lengths)
+                p = n ** 2 + 2 * n * model.n_features - 1
+                bic_score = -2 * log_l + p * math.log(n)
+                bic_scores.append(bic_score)
+        except Exception as e:
+            pass
 
+        # print(bic_scores)
+        states = self.n_components[np.argmax(bic_scores)] if bic_scores else self.n_constant
+        return self.base_model(states)
 
 class SelectorDIC(ModelSelector):
     ''' select best model based on Discriminative Information Criterion
@@ -90,11 +106,31 @@ class SelectorDIC(ModelSelector):
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
     '''
 
+    def m_scores(self, scores):
+        return max(scores, key = lambda x : x[0])
+
+    def dicScore(self, n):
+        model = self.base_model(n)
+        scores = []
+        for word, (X, lengths) in self.hwords.items():
+            if word != self.this_word:
+                scores.append(model.score(X, lengths))
+        return ([model.score(self.X, self.lengths) - np.mean(scores), model])
+
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        dic_scores = []
+
+        for num_states in range(self.min_n_components, self.max_n_components+1):
+            try:
+                dic_scores.append(self.dicScore(num_states))
+
+            except:
+                pass
+
+        return self.m_scores(dic_scores)[1] if dic_scores else self.n_constant
 
 
 class SelectorCV(ModelSelector):
@@ -106,4 +142,24 @@ class SelectorCV(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        mean_scores = []
+        # Save reference to 'KFold' in variable as shown in notebook
+        split_method = KFold()
+        try:
+            for n_component in self.n_components:
+                model = self.base_model(n_component)
+                # Fold and calculate model mean scores
+                fold_scores = []
+                for _, test_idx in split_method.split(self.sequences):
+                    # Get test sequences
+                    test_X, test_length = combine_sequences(test_idx, self.sequences)
+                    # Record each model score
+                    fold_scores.append(model.score(test_X, test_length))
+
+                # Compute mean of all fold scores
+                mean_scores.append(np.mean(fold_scores))
+        except Exception as e:
+            pass
+
+        states = self.n_components[np.argmax(mean_scores)] if mean_scores else self.n_constant
+        return self.base_model(states)
